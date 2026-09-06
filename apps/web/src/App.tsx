@@ -19,12 +19,13 @@ type ApiConnection = { id: string; provider: string; label?: string; keyLast4: s
 type ProviderView = { provider: string; mark: string; tone: string; accounts: { nickname: string; identifier: string; currencies: { code: string; flag: string; balance: string }[]; fxTotal: string }[] }
 type Recipient = { id: string; name: string; destination: string; method: string; currency?: string }
 type SourceAccount = { id: string; provider: string; nickname: string; currency: string; balance: string }
-type Page = 'overview' | 'accounts' | 'transfers' | 'activity' | 'insights' | 'connections'
+type Page = 'overview' | 'accounts' | 'transfers' | 'recipients' | 'activity' | 'insights' | 'connections'
 
 function pageFromPath(pathname: string): Page {
   const path = pathname.replace(/\/$/, '')
   if (path === '/accounts') return 'accounts'
   if (path === '/transfers') return 'transfers'
+  if (path === '/recipients') return 'recipients'
   if (path === '/activity') return 'activity'
   if (path === '/insights') return 'insights'
   if (path === '/settings' || path === '/connections') return 'connections'
@@ -62,6 +63,7 @@ function App() {
   const [accountData, setAccountData] = useState<ProviderView[]>(isDemoMode ? demoAccounts : [])
   const [connections, setConnections] = useState<ApiConnection[]>(isDemoMode ? demoConnections : [])
   const [recipients, setRecipients] = useState<Recipient[]>(isDemoMode ? demoRecipients : (() => { try { return JSON.parse(localStorage.getItem('onepane.recipients') || '[]') as Recipient[] } catch { return [] } })())
+  const [recipientSearch, setRecipientSearch] = useState('')
   const [selectedRecipient, setSelectedRecipient] = useState('')
   const [showRecipientForm, setShowRecipientForm] = useState(false)
   const [showSendMoneyModal, setShowSendMoneyModal] = useState(false)
@@ -116,13 +118,14 @@ function App() {
   const sourceAccounts: SourceAccount[] = accountData.flatMap((provider) => provider.accounts.flatMap((account) => account.currencies.map((currency) => ({ id: `${provider.provider}:${account.identifier}:${currency.code}`, provider: provider.provider, nickname: account.nickname, currency: currency.code, balance: currency.balance }))))
   const selectedSourceAccount = sourceAccounts.find((account) => account.id === sourceAccountId)
   const selectedTransferRecipient = recipients.find((recipient) => recipient.id === selectedRecipient)
+  const visibleRecipients = recipients.filter((recipient) => `${recipient.name} ${recipient.destination} ${recipient.method} ${recipient.currency || 'USD'}`.toLowerCase().includes(recipientSearch.toLowerCase().trim()))
   const closeSendMoneyModal = () => { setShowSendMoneyModal(false); setSendMoneyStep(1); setSendMoneyAmount('') }
   const navigate = (page: Page) => {
     const path = page === 'overview' ? '/' : page === 'connections' ? '/settings' : `/${page}`
     window.history.pushState({}, '', path)
     setActivePage(page)
   }
-  const pageTitles: Record<Page, string> = { overview: 'Overview', accounts: 'Accounts', transfers: 'Transfers', activity: 'Activity', insights: 'Insights', connections: 'Platform connections' }
+  const pageTitles: Record<Page, string> = { overview: 'Overview', accounts: 'Accounts', transfers: 'Transfers', recipients: 'Recipients', activity: 'Activity', insights: 'Insights', connections: 'Platform connections' }
 
   return (
     <div className={`app-shell ${activePage === 'connections' ? 'settings-view' : ''}`}>
@@ -132,6 +135,7 @@ function App() {
           <a className={`nav-link ${activePage === 'overview' ? 'active' : ''}`} href="/" onClick={(event) => { event.preventDefault(); navigate('overview') }}><i>⌂</i> Overview</a>
           <a className={`nav-link ${activePage === 'accounts' ? 'active' : ''}`} href="/accounts" onClick={(event) => { event.preventDefault(); navigate('accounts') }}><i>▣</i> Accounts</a>
           <a className={`nav-link ${activePage === 'transfers' ? 'active' : ''}`} href="/transfers" onClick={(event) => { event.preventDefault(); navigate('transfers') }}><i>⇄</i> Transfers</a>
+          <a className={`nav-link ${activePage === 'recipients' ? 'active' : ''}`} href="/recipients" onClick={(event) => { event.preventDefault(); navigate('recipients') }}><i>◎</i> Recipients</a>
           <a className={`nav-link ${activePage === 'activity' ? 'active' : ''}`} href="/activity" onClick={(event) => { event.preventDefault(); navigate('activity') }}><i>↗</i> Activity</a>
           <a className={`nav-link ${activePage === 'insights' ? 'active' : ''}`} href="/insights" onClick={(event) => { event.preventDefault(); navigate('insights') }}><i>◔</i> Insights</a>
         </nav>
@@ -163,7 +167,7 @@ function App() {
             <p className="settings-note">PayPal OAuth is not configured on the backend yet. Add PayPal app credentials and a callback URL before enabling this connection.</p>
             <div className="connection-list">{connections.length ? connections.map((connection) => { const details = providerDetails[connection.provider] || { mark: connection.provider.slice(0, 1), tone: 'boa' }; return <div className="connection" key={connection.id}><ProviderMark mark={details.mark} tone={details.tone} /><div><strong>{connection.label || connection.provider}</strong><small>•••• {connection.keyLast4} · Connected {new Date(connection.connectedAt).toLocaleString()}</small></div><button type="button">Manage</button></div> }) : <p className="empty-state">No platform connections yet.</p>}</div>
           </article>
-        </section> : <section className={`dashboard-grid ${activePage !== 'overview' ? 'route-single' : ''}`}>
+        </section> : activePage === 'recipients' ? <section className="settings-grid"><article className="panel connections-panel recipients-page"><div className="panel-heading"><div><h2>Recipients</h2><p>{recipients.length} recipients across all connected accounts</p></div><button className="quiet-button" type="button" onClick={() => navigate('transfers')}>Send money</button></div><label className="recipient-search"><span>Search recipients</span><input type="search" value={recipientSearch} onChange={(event) => setRecipientSearch(event.target.value)} placeholder="Search by name, email, provider, or currency" /></label><div className="connection-list recipient-page-list">{visibleRecipients.length ? visibleRecipients.map((recipient) => <div className="connection recipient-page-row" key={recipient.id}><span className={`recipient-avatar ${recipient.method}`}>{recipient.name.slice(0, 1).toUpperCase()}</span><div><strong>{recipient.name}</strong><small>{recipient.destination} · {recipient.method === 'venmo' ? 'Venmo' : recipient.method === 'stripe-account' ? 'Stripe recipient account' : recipient.method === 'stripe' ? 'Stripe customer' : 'PayPal'} · {recipient.currency || 'USD'}</small></div><button type="button" onClick={() => { setSelectedRecipient(recipient.id); navigate('transfers') }}>Use recipient</button></div>) : <p className="empty-state">{recipients.length ? 'No recipients match your search.' : 'No recipients yet. Connect Stripe or add a recipient from the Transfers page.'}</p>}</div></article></section> : <section className={`dashboard-grid ${activePage !== 'overview' ? 'route-single' : ''}`}>
           <article className={`panel accounts-panel ${activePage !== 'overview' && activePage !== 'accounts' ? 'route-hidden' : ''}`} id="accounts">
             <div className="panel-heading"><div><h2>Connected accounts</h2><p>{accountData.length} providers · {accountCount} accounts</p></div><button className="quiet-button" type="button">Manage accounts</button></div>
             <div className="account-list">{accountData.length ? accountData.map((provider) => <section className="provider-group" key={provider.provider}><div className="provider-heading"><ProviderMark mark={provider.mark} tone={provider.tone} /><strong>{provider.provider}</strong><span>{provider.accounts.length} {provider.accounts.length === 1 ? 'account' : 'accounts'}</span></div>{provider.accounts.map((account) => <button className="account-row" type="button" key={account.nickname}><span className="account-copy"><strong>{account.nickname}</strong><small>{account.identifier}</small></span><span className="currency-balances">{account.currencies.map((currency) => <span key={currency.code}><em><span aria-hidden="true">{currency.flag}</span>{currency.code}</em><b>{currency.balance}</b></span>)}</span><span className="fx-total"><em>USD total</em><b>{account.fxTotal}</b></span><i>›</i></button>)}</section>) : <p className="empty-state">No connected accounts yet. Add a platform connection to begin.</p>}</div>

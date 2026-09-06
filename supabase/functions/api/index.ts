@@ -28,9 +28,11 @@ async function accountForUser(userId: string) {
 }
 
 async function connectionsForUser(userId: string) {
-  const account = await accountForUser(userId);
-  if (!account) return [];
-  const { data, error } = await supabase.from("platform_connections").select("id, account_id, platform, status, display_name, credentials_ref, metadata, last_synced_at, created_at").eq("account_id", account.id).order("created_at", { ascending: false });
+  const { data: memberships, error: membershipError } = await supabase.from("account_members").select("account_id").eq("user_id", userId);
+  if (membershipError) throw membershipError;
+  const accountIds = (memberships || []).map((membership: { account_id: string }) => membership.account_id);
+  if (!accountIds.length) return [];
+  const { data, error } = await supabase.from("platform_connections").select("id, account_id, platform, status, display_name, credentials_ref, metadata, last_synced_at, created_at").in("account_id", accountIds).order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
 }
@@ -66,6 +68,12 @@ async function stripeRecipients(apiKey: string) {
   return (payload.data || []).map((customer: any) => ({ id: `stripe_customer_${customer.id}`, name: customer.name || customer.email || customer.id, destination: customer.email || customer.id, method: "stripe" }));
 }
 
+async function stripeRecipientsForConnections(connections: any[]) {
+  const stripeConnections = connections.filter((connection) => connection.platform === "stripe" && connection.credentials_ref);
+  const recipientGroups = await Promise.all(stripeConnections.map((connection) => stripeRecipients(connection.credentials_ref)));
+  return Array.from(new Map(recipientGroups.flat().map((recipient) => [recipient.id, recipient])).values());
+}
+
 async function dashboard(userId: string) {
   const connections = await connectionsForUser(userId);
   const providers = [];
@@ -99,8 +107,7 @@ Deno.serve(async (request) => {
       return json({ data: { id: data.id, provider: data.platform, label: data.display_name, keyLast4: input.apiKey.slice(-4), connectedAt: data.created_at, status: data.status } }, 201);
     }
     if (request.method === "GET" && url.pathname.endsWith("/recipients")) {
-      const stripe = (await connectionsForUser(user.id)).find((connection) => connection.platform === "stripe" && connection.credentials_ref);
-      return json({ data: stripe ? await stripeRecipients(stripe.credentials_ref) : [] });
+      return json({ data: await stripeRecipientsForConnections(await connectionsForUser(user.id)) });
     }
     if (request.method === "GET" && url.pathname.endsWith("/profile")) {
       const { data, error } = await supabase.from("profiles").select("first_name, last_name, username, company_name").eq("id", user.id).maybeSingle();
