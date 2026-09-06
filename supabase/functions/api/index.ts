@@ -12,6 +12,8 @@ const corsHeaders = {
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "content-type": "application/json" } });
 const stripeHeaders = (key: string, version = "2026-02-25.preview") => ({ Authorization: `Bearer ${key}`, "Stripe-Version": version });
+const normalizeApiKey = (value: unknown) => String(value || "").trim().replace(/^Bearer\s+/i, "").replace(/^['"]|['"]$/g, "").trim();
+const isStripeApiKey = (value: string) => /^(sk_(test|live)_|rk_)[A-Za-z0-9_]+$/.test(value);
 
 async function requireUser(request: Request) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -79,8 +81,12 @@ async function dashboard(userId: string) {
   const providers = [];
   for (const connection of connections) {
     if (connection.platform === "stripe" && connection.credentials_ref) {
-      const accounts = await stripeFinancialAccounts(connection.credentials_ref);
-      providers.push({ id: "stripe", name: "Stripe", accounts: accounts.map((account: any) => ({ id: account.identifier, nickname: account.nickname, type: "cash", status: "open", balances: account.currencies.map((balance: any) => ({ currency: balance.currency, amount: balance.amount })) })) });
+      try {
+        const accounts = await stripeFinancialAccounts(connection.credentials_ref);
+        providers.push({ id: connection.id, name: "Stripe", accounts: accounts.map((account: any) => ({ id: account.identifier, nickname: account.nickname, type: "cash", status: "open", balances: account.currencies.map((balance: any) => ({ currency: balance.currency, amount: balance.amount })) })) });
+      } catch (error) {
+        providers.push({ id: connection.id, name: "Stripe", accounts: [], error: error instanceof Error ? error.message : "Stripe connection failed" });
+      }
     }
   }
   return { userId, baseCurrency: "USD", providers, syncedAt: new Date().toISOString() };
@@ -99,12 +105,31 @@ Deno.serve(async (request) => {
     }
     if (request.method === "POST" && url.pathname.endsWith("/platform-connections")) {
       const input = await request.json();
-      if (!["stripe", "bank-of-america", "venmo"].includes(input.provider) || typeof input.apiKey !== "string" || input.apiKey.length < 8) return json({ error: "A supported provider and API key (8+ characters) are required" }, 400);
+      const apiKey = normalizeApiKey(input.apiKey);
+      if (!["stripe", "bank-of-america", "venmo"].includes(input.provider) || !apiKey || apiKey.length < 8) return json({ error: "A supported provider and API key (8+ characters) are required" }, 400);
+      if (input.provider === "stripe" && !isStripeApiKey(apiKey)) return json({ error: "Stripe keys must be a complete secret key beginning with sk_test_, sk_live_, or rk_. Do not include Bearer or quotation marks." }, 400);
       const account = await accountForUser(user.id);
       if (!account) return json({ error: "No account is associated with this user" }, 400);
-      const { data, error } = await supabase.from("platform_connections").insert({ account_id: account.id, platform: input.provider, display_name: input.displayName || input.provider, credentials_ref: input.apiKey, access_mode: "read_only", status: "active", updated_at: new Date().toISOString() }).select("id, platform, display_name, status, created_at").single();
+      const { data, error } = await supabase.from("platform_connections").insert({ account_id: account.id, platform: input.provider, display_name: input.displayName || input.provider, credentials_ref: apiKey, access_mode: "read_only", status: "active", updated_at: new Date().toISOString() }).select("id, platform, display_name, status, created_at").single();
       if (error) return json({ error: error.message }, 500);
-      return json({ data: { id: data.id, provider: data.platform, label: data.display_name, keyLast4: input.apiKey.slice(-4), connectedAt: data.created_at, status: data.status } }, 201);
+      return json({ data: { id: data.id, provider: data.platform, label: data.display_name, keyLast4: apiKey.slice(-4), connectedAt: data.created_at, status: data.status } }, 201);
+    }
+    if (request.method === "PATCH" && url.pathname.includes("/platform-connections/")) {
+      const connectionId = url.pathname.split("/").pop();
+      const connection = (await connectionsForUser(user.id)).find((item) => item.id === connectionId);
+      if (!connection) return json({ error: "Connection not found" }, 404);
+      const input = await request.json();
+      const updates: Record<string, string> = {};
+      if (typeof input.displayName === "string") updates.display_name = input.displayName.trim() || connection.platform;
+      if (typeof input.apiKey === "string" && input.apiKey.trim()) {
+        const apiKey = normalizeApiKey(input.apiKey);
+        if (connection.platform === "stripe" && !isStripeApiKey(apiKey)) return json({ error: "Stripe keys must be a complete secret key beginning with sk_test_, sk_live_, or rk_. Do not include Bearer or quotation marks." }, 400);
+        updates.credentials_ref = apiKey;
+      }
+      updates.updated_at = new Date().toISOString();
+      const { data, error } = await supabase.from("platform_connections").update(updates).eq("id", connectionId).select("id, platform, display_name, status, credentials_ref, created_at").single();
+      if (error) return json({ error: error.message }, 500);
+      return json({ data: { id: data.id, provider: data.platform, label: data.display_name, keyLast4: data.credentials_ref.slice(-4), connectedAt: data.created_at, status: data.status } });
     }
     if (request.method === "DELETE" && url.pathname.includes("/platform-connections/")) {
       const connectionId = url.pathname.split("/").pop();
