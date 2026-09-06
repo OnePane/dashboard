@@ -16,6 +16,7 @@ type ApiAccount = { nickname: string; id: string; balances: ApiBalance[] }
 type ApiProvider = { name: string; accounts: ApiAccount[] }
 type ApiConnection = { id: string; provider: string; label?: string; keyLast4: string; connectedAt: string }
 type ProviderView = { provider: string; mark: string; tone: string; accounts: { nickname: string; identifier: string; currencies: { code: string; flag: string; balance: string }[]; fxTotal: string }[] }
+type Recipient = { id: string; name: string; destination: string; method: string }
 
 const providerDetails: Record<string, { mark: string; tone: string }> = {
   stripe: { mark: 'S', tone: 'stripe' },
@@ -36,6 +37,9 @@ function App() {
   const [activePage, setActivePage] = useState<'overview' | 'connections'>('overview')
   const [accountData, setAccountData] = useState<ProviderView[]>([])
   const [connections, setConnections] = useState<ApiConnection[]>([])
+  const [recipients, setRecipients] = useState<Recipient[]>(() => { try { return JSON.parse(localStorage.getItem('onepane.recipients') || '[]') as Recipient[] } catch { return [] } })
+  const [selectedRecipient, setSelectedRecipient] = useState('')
+  const [showRecipientForm, setShowRecipientForm] = useState(false)
   const [loading, setLoading] = useState(true)
   const [apiError, setApiError] = useState('')
 
@@ -66,6 +70,7 @@ function App() {
   }
 
   useEffect(() => { void refreshAccounts() }, [])
+  useEffect(() => { localStorage.setItem('onepane.recipients', JSON.stringify(recipients)) }, [recipients])
 
   const totalBalance = accountData.flatMap((provider) => provider.accounts).reduce((total, account) => total + account.currencies.reduce((subtotal, currency) => subtotal + Number(currency.balance.replace(/[^0-9.-]/g, '')) * (fxRates[currency.code] || 1), 0), 0)
   const accountCount = accountData.reduce((total, provider) => total + provider.accounts.length, 0)
@@ -116,7 +121,7 @@ function App() {
             <button className="connect-account" type="button" onClick={() => setShowProviderFlow(true)}><span>+</span> Add a provider</button>
           </article>
 
-          <article className="panel movement-panel" id="transfers"><div className="panel-heading"><div><h2>Move money</h2><p>Choose a source, destination, and amount</p></div></div><div className="transfer-route"><div><ProviderMark mark="From" tone="boa" /><span><small>Source account</small><strong>{accountCount ? 'Select an account' : 'Connect an account first'}</strong></span></div><span className="route-arrow">↓</span><div><ProviderMark mark="To" tone="paypal" /><span><small>Destination</small><strong>PayPal or Venmo</strong></span></div></div><button className="transfer-button" type="button" disabled={!accountCount}>Start a transfer <span>→</span></button><p className="settings-note">Transfers will be enabled after the destination provider is authorized.</p></article>
+          <article className="panel movement-panel" id="transfers"><div className="panel-heading"><div><h2>Move money</h2><p>Choose a source and recipient</p></div><button className="quiet-button" type="button" onClick={() => setShowRecipientForm((visible) => !visible)}>{showRecipientForm ? 'Close' : 'Add recipient'}</button></div>{showRecipientForm && <form className="recipient-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const recipient = { id: crypto.randomUUID(), name: String(form.get('name')), destination: String(form.get('destination')), method: String(form.get('method')) }; setRecipients((current) => [...current, recipient]); setSelectedRecipient(recipient.id); setShowRecipientForm(false); event.currentTarget.reset() }}><label>Name<input name="name" placeholder="Recipient name" required /></label><label>PayPal email or Venmo handle<input name="destination" placeholder="name@example.com or @handle" required /></label><label>Method<select name="method" defaultValue="paypal"><option value="paypal">PayPal</option><option value="venmo">Venmo</option></select></label><button className="transfer-button" type="submit">Save recipient</button></form>}<div className="recipient-list">{recipients.length ? recipients.map((recipient) => <button className={`recipient-row ${selectedRecipient === recipient.id ? 'selected' : ''}`} type="button" key={recipient.id} onClick={() => setSelectedRecipient(recipient.id)}><span className={`recipient-avatar ${recipient.method}`}>{recipient.name.slice(0, 1).toUpperCase()}</span><span><strong>{recipient.name}</strong><small>{recipient.destination} · {recipient.method === 'venmo' ? 'Venmo' : 'PayPal'}</small></span><i>{selectedRecipient === recipient.id ? '✓' : '›'}</i></button>) : <p className="empty-state">No recipients yet. Add one to start a transfer.</p>}</div><div className="transfer-route"><div><ProviderMark mark="From" tone="boa" /><span><small>Source account</small><strong>{accountCount ? 'Select an account' : 'Connect an account first'}</strong></span></div><span className="route-arrow">↓</span><div><ProviderMark mark="To" tone="paypal" /><span><small>Recipient</small><strong>{recipients.find((recipient) => recipient.id === selectedRecipient)?.name || 'Choose a recipient'}</strong></span></div></div><button className="transfer-button" type="button" disabled={!accountCount || !selectedRecipient}>Start a transfer <span>→</span></button><p className="settings-note">Transfers will be enabled after the destination provider is authorized.</p></article>
 
           <article className="panel cash-flow"><div className="panel-heading"><div><h2>Cash flow</h2><p>Across all providers · Last 30 days</p></div><button className="quiet-button" type="button">View report</button></div><div className="chart-summary"><div><span>Inflow</span><strong>$32,420</strong></div><div><span>Outflow</span><strong>$12,842</strong></div><div className="net"><span>Net flow</span><strong>+$19,578</strong></div></div><div className="chart" aria-label="Cash flow chart"><div className="gridline g1" /><div className="gridline g2" /><div className="gridline g3" /><svg viewBox="0 0 600 150" preserveAspectRatio="none" role="img" aria-label="Income rose over the month"><path className="area" d="M0,111 C45,101 56,120 92,104 S143,91 174,100 S218,61 254,78 S309,88 344,55 S395,61 431,42 S488,66 520,35 S568,45 600,11 L600,150 L0,150 Z" /><path className="line" d="M0,111 C45,101 56,120 92,104 S143,91 174,100 S218,61 254,78 S309,88 344,55 S395,61 431,42 S488,66 520,35 S568,45 600,11" /></svg><div className="chart-labels"><span>Aug 6</span><span>Aug 13</span><span>Aug 20</span><span>Aug 27</span><span>Sep 3</span></div></div></article>
 
