@@ -37,13 +37,26 @@ async function connectionsForUser(userId: string) {
 
 async function stripeFinancialAccounts(apiKey: string) {
   const response = await fetch("https://api.stripe.com/v2/money_management/financial_accounts?limit=100", { headers: stripeHeaders(apiKey) });
-  if (!response.ok) throw new Error(`Stripe Financial Accounts v2 request failed with ${response.status}`);
+  if (!response.ok) {
+    const detail = await response.text();
+    const fallback = await stripeBalanceFallback(apiKey);
+    if (fallback.length) return fallback;
+    throw new Error(`Stripe Financial Accounts v2 request failed with ${response.status}${detail ? `: ${detail.slice(0, 240)}` : ""}`);
+  }
   const payload = await response.json();
   return (payload.data || []).map((financialAccount: any) => ({
     nickname: financialAccount.display_name || financialAccount.description || financialAccount.id,
     identifier: financialAccount.id,
     currencies: Object.entries(financialAccount.balance?.available || {}).map(([currency, value]: [string, any]) => ({ currency: String(value?.currency || currency).toUpperCase(), amount: Number(value?.value || 0) })),
   }));
+}
+
+async function stripeBalanceFallback(apiKey: string) {
+  const response = await fetch("https://api.stripe.com/v1/balance", { headers: { Authorization: `Bearer ${apiKey}` } });
+  if (!response.ok) return [];
+  const payload = await response.json();
+  const available = (payload.available || []).map((balance: any) => ({ currency: String(balance.currency || "").toUpperCase(), amount: Number(balance.amount || 0) }));
+  return available.length ? [{ nickname: "Stripe balance", identifier: "stripe_balance", currencies: available }] : [];
 }
 
 async function stripeRecipients(apiKey: string) {
