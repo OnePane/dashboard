@@ -145,7 +145,7 @@ function App() {
         <header className="topbar">
           <button className="mobile-menu" type="button" aria-label="Open navigation">☰</button>
           <div><p className="eyebrow">{activePage === 'connections' ? 'Settings' : (profile.companyName || 'Workspace')}</p><h1>{pageTitles[activePage]}</h1></div>
-          <div className="top-actions">{activePage === 'overview' && <button className="new-button" type="button" onClick={() => document.getElementById('transfers')?.scrollIntoView({ behavior: 'smooth' })}>Move money <span>→</span></button>}</div>
+          <div className="top-actions">{activePage === 'overview' && <button className="new-button" type="button" onClick={() => { setSendMoneyStep(1); setShowSendMoneyModal(true) }}>Move money <span>→</span></button>}</div>
         </header>
 
         {activePage === 'overview' && <section className="balance-section" aria-labelledby="balance-heading">
