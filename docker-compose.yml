@@ -1,0 +1,22 @@
+services:
+  accounts-service:
+    build:
+      context: .
+      dockerfile: services/accounts-service/Dockerfile
+    environment:
+      PORT: 3001
+    ports:
+      - "3001:3001"
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    environment:
+      PORT: 3000
+      ACCOUNTS_SERVICE_URL: http://accounts-service:3001
+      PAYMENT_PROVIDER: mock
+    depends_on:
+      - accounts-service
+    ports:
+      - "3000:3000"

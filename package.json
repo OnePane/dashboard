@@ -1,0 +1,38 @@
+{
+  "name": "financial-platform-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm --workspace @onepane/web run build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "start:accounts": "npm --workspace @onepane/accounts-service run start",
+    "start:gateway": "npm --workspace @onepane/api-gateway run start",
+    "test:services": "npm --workspaces --if-present run test"
+  },
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "eslint-plugin-react-refresh": "latest",
+    "globals": "latest",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "latest"
+  }
+}
