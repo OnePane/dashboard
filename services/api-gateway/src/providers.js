@@ -18,6 +18,18 @@ const balanceFixtures = {
 export class BalanceProvider {
   constructor(name) { this.name = name; }
   async getAccounts() { return balanceFixtures[this.name] || []; }
+  async getRecipients(apiKey) {
+    if (this.name !== "stripe") return [];
+    const response = await fetch("https://api.stripe.com/v1/customers?limit=100", { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!response.ok) throw new Error(`Stripe customers request failed with ${response.status}`);
+    const payload = await response.json();
+    return (payload.data || []).map((customer) => ({
+      id: `stripe_${customer.id}`,
+      name: customer.name || customer.email || customer.id,
+      destination: customer.email || customer.id,
+      method: "stripe",
+    }));
+  }
   async createPaymentIntent(input) { return { provider: this.name, providerPaymentId: `${this.name}_pi_${randomUUID()}`, status: "requires_payment_method", amount: input.amount, currency: input.currency }; }
 }
 

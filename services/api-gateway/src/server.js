@@ -78,6 +78,16 @@ const server = http.createServer(async (request, response) => {
     if (!userId) return send(response, 400, { error: "userId is required" });
     return send(response, 200, { data: (platformConnections.get(userId) || []).map(({ apiKey, ...connection }) => connection) });
   }
+  if (request.method === "GET" && url.pathname === "/v1/recipients") {
+    const userId = url.searchParams.get("userId");
+    const providerName = url.searchParams.get("provider") || "stripe";
+    if (!userId) return send(response, 400, { error: "userId is required" });
+    const connection = (platformConnections.get(userId) || []).find((item) => item.provider === providerName);
+    const provider = providers.get(providerName);
+    if (!connection || !provider?.getRecipients) return send(response, 200, { data: [] });
+    try { return send(response, 200, { data: await provider.getRecipients(connection.apiKey) }); }
+    catch (error) { return send(response, 502, { error: error.message }); }
+  }
   if (url.pathname.startsWith("/v1/financial-accounts")) {
     try { return await proxyAccounts(request, response, url.pathname); } catch { return send(response, 503, { error: "Accounts service is unavailable" }); }
   }
