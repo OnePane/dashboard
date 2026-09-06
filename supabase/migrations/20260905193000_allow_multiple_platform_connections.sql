@@ -1,0 +1,1 @@
+drop index if exists public.platform_connections_account_platform_unique;

@@ -102,7 +102,7 @@ Deno.serve(async (request) => {
       if (!["stripe", "bank-of-america", "venmo"].includes(input.provider) || typeof input.apiKey !== "string" || input.apiKey.length < 8) return json({ error: "A supported provider and API key (8+ characters) are required" }, 400);
       const account = await accountForUser(user.id);
       if (!account) return json({ error: "No account is associated with this user" }, 400);
-      const { data, error } = await supabase.from("platform_connections").upsert({ account_id: account.id, platform: input.provider, display_name: input.provider, credentials_ref: input.apiKey, access_mode: "read_only", status: "active", updated_at: new Date().toISOString() }, { onConflict: "account_id,platform" }).select("id, platform, display_name, status, created_at").single();
+      const { data, error } = await supabase.from("platform_connections").insert({ account_id: account.id, platform: input.provider, display_name: input.displayName || input.provider, credentials_ref: input.apiKey, access_mode: "read_only", status: "active", updated_at: new Date().toISOString() }).select("id, platform, display_name, status, created_at").single();
       if (error) return json({ error: error.message }, 500);
       return json({ data: { id: data.id, provider: data.platform, label: data.display_name, keyLast4: input.apiKey.slice(-4), connectedAt: data.created_at, status: data.status } }, 201);
     }
