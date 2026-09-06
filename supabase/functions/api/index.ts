@@ -70,9 +70,22 @@ async function stripeRecipients(apiKey: string) {
   return (payload.data || []).map((customer: any) => ({ id: `stripe_customer_${customer.id}`, name: customer.name || customer.email || customer.id, destination: customer.email || customer.id, method: "stripe" }));
 }
 
+async function stripeRecipientAccounts(apiKey: string) {
+  const response = await fetch("https://api.stripe.com/v2/core/accounts?limit=100&applied_configurations[0]=recipient", { headers: stripeHeaders(apiKey, "2026-08-26.dahlia") });
+  if (!response.ok) return [];
+  const payload = await response.json();
+  return (payload.data || []).map((account: any) => ({ id: `stripe_account_${account.id}`, name: account.display_name || account.contact_email || account.id, destination: account.contact_email || account.id, method: "stripe-account" }));
+}
+
 async function stripeRecipientsForConnections(connections: any[]) {
   const stripeConnections = connections.filter((connection) => connection.platform === "stripe" && connection.credentials_ref);
-  const recipientGroups = await Promise.all(stripeConnections.map((connection) => stripeRecipients(connection.credentials_ref)));
+  const recipientGroups = await Promise.all(stripeConnections.map(async (connection) => {
+    const [customers, accounts] = await Promise.all([
+      stripeRecipients(connection.credentials_ref).catch(() => []),
+      stripeRecipientAccounts(connection.credentials_ref).catch(() => []),
+    ]);
+    return [...customers, ...accounts];
+  }));
   return Array.from(new Map(recipientGroups.flat().map((recipient) => [recipient.id, recipient])).values());
 }
 
