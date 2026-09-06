@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
+import { isDemoMode } from './mode'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api`
 const currencySymbols: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' }
 
 function ProviderMark({ mark, tone }: { mark: string; tone: string }) {
@@ -32,23 +33,36 @@ const providerOptions = [
   { id: 'paypal', name: 'PayPal', description: 'Authorize PayPal and Venmo payments', method: 'oauth' },
 ]
 
+const demoAccounts: ProviderView[] = [{ provider: 'Stripe', mark: 'S', tone: 'stripe', accounts: [{ nickname: 'Operating balance', identifier: 'fa_demo_usd', currencies: [{ code: 'USD', flag: '🇺🇸', balance: '$218,402.42' }, { code: 'EUR', flag: '🇪🇺', balance: '€18,450.00' }], fxTotal: '$238,348.42' }] }, { provider: 'Bank of America', mark: 'BofA', tone: 'boa', accounts: [{ nickname: 'Operating account', identifier: '•••• 4821', currencies: [{ code: 'USD', flag: '🇺🇸', balance: '$79,861.40' }], fxTotal: '$79,861.40' }] }]
+const demoRecipients: Recipient[] = [{ id: 'demo_recipient_1', name: 'Acme Payroll', destination: 'payroll@acme.example', method: 'paypal' }, { id: 'demo_recipient_2', name: 'Sarah Chen', destination: '@sarahchen', method: 'venmo' }]
+const demoConnections: ApiConnection[] = [{ id: 'demo_stripe', provider: 'stripe', label: 'Stripe', keyLast4: 'demo', connectedAt: new Date().toISOString() }, { id: 'demo_boa', provider: 'bank-of-america', label: 'Bank of America', keyLast4: 'demo', connectedAt: new Date().toISOString() }]
+
+async function apiFetch(path: string, init: RequestInit = {}) {
+  const session = await supabase?.auth.getSession()
+  const headers = new Headers(init.headers)
+  if (session?.data.session?.access_token) headers.set('Authorization', `Bearer ${session.data.session.access_token}`)
+  return fetch(`${apiBaseUrl}${path}`, { ...init, headers })
+}
+
 function App() {
   const [showProviderFlow, setShowProviderFlow] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState('')
   const [activePage, setActivePage] = useState<'overview' | 'connections'>('overview')
-  const [accountData, setAccountData] = useState<ProviderView[]>([])
-  const [connections, setConnections] = useState<ApiConnection[]>([])
-  const [recipients, setRecipients] = useState<Recipient[]>(() => { try { return JSON.parse(localStorage.getItem('onepane.recipients') || '[]') as Recipient[] } catch { return [] } })
+  const [accountData, setAccountData] = useState<ProviderView[]>(isDemoMode ? demoAccounts : [])
+  const [connections, setConnections] = useState<ApiConnection[]>(isDemoMode ? demoConnections : [])
+  const [recipients, setRecipients] = useState<Recipient[]>(isDemoMode ? demoRecipients : (() => { try { return JSON.parse(localStorage.getItem('onepane.recipients') || '[]') as Recipient[] } catch { return [] } })())
   const [selectedRecipient, setSelectedRecipient] = useState('')
   const [showRecipientForm, setShowRecipientForm] = useState(false)
   const [showSendMoneyModal, setShowSendMoneyModal] = useState(false)
   const [sendMoneyStep, setSendMoneyStep] = useState(1)
   const [sourceAccountId, setSourceAccountId] = useState('')
   const [sendMoneyAmount, setSendMoneyAmount] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!isDemoMode)
   const [apiError, setApiError] = useState('')
+  const [profile, setProfile] = useState({ firstName: isDemoMode ? 'Jordan' : '', lastName: isDemoMode ? 'Davis' : '', username: isDemoMode ? 'jordan_davis' : '', companyName: isDemoMode ? 'Acme, Inc.' : '' })
 
   const refreshAccounts = async () => {
+    if (isDemoMode) return
     const user = await supabase?.auth.getUser()
     const userId = user?.data.user?.id
     if (!userId) return
@@ -56,9 +70,9 @@ function App() {
     setApiError('')
     try {
       const [dashboardResponse, connectionsResponse, recipientsResponse] = await Promise.all([
-        fetch(`${apiBaseUrl}/v1/dashboard?userId=${encodeURIComponent(userId)}`),
-        fetch(`${apiBaseUrl}/v1/platform-connections?userId=${encodeURIComponent(userId)}`),
-        fetch(`${apiBaseUrl}/v1/recipients?userId=${encodeURIComponent(userId)}&provider=stripe`),
+        apiFetch('/dashboard'),
+        apiFetch('/platform-connections'),
+        apiFetch('/recipients?provider=stripe'),
       ])
       if (!dashboardResponse.ok || !connectionsResponse.ok) throw new Error('The backend could not load your dashboard.')
       const dashboard = await dashboardResponse.json() as { data?: { providers?: ApiProvider[] } }
@@ -78,7 +92,8 @@ function App() {
   }
 
   useEffect(() => { void refreshAccounts() }, [])
-  useEffect(() => { localStorage.setItem('onepane.recipients', JSON.stringify(recipients.filter((recipient) => recipient.id.startsWith('local_')))) }, [recipients])
+  useEffect(() => { if (!isDemoMode) localStorage.setItem('onepane.recipients', JSON.stringify(recipients.filter((recipient) => recipient.id.startsWith('local_')))) }, [recipients])
+  useEffect(() => { if (isDemoMode) return; void apiFetch('/profile').then(async (response) => { if (!response.ok) return; const payload = await response.json() as { data: { first_name?: string; last_name?: string; username?: string; company_name?: string } }; setProfile({ firstName: payload.data.first_name || '', lastName: payload.data.last_name || '', username: payload.data.username || '', companyName: payload.data.company_name || '' }) }) }, [])
 
   const totalBalance = accountData.flatMap((provider) => provider.accounts).reduce((total, account) => total + account.currencies.reduce((subtotal, currency) => subtotal + Number(currency.balance.replace(/[^0-9.-]/g, '')) * (fxRates[currency.code] || 1), 0), 0)
   const accountCount = accountData.reduce((total, provider) => total + provider.accounts.length, 0)
@@ -100,14 +115,14 @@ function App() {
         </nav>
         <div className="sidebar-footer">
           <a className={`nav-link ${activePage === 'connections' ? 'active' : ''}`} href="#settings" onClick={(event) => { event.preventDefault(); setActivePage('connections') }}><i>⚙</i> Settings</a>
-          <button className="profile" type="button"><span className="avatar">JD</span><span>Jordan Davis<small>Acme, Inc.</small></span><b>⌄</b></button>
+          <button className="profile" type="button"><span className="avatar">{`${profile.firstName.slice(0, 1)}${profile.lastName.slice(0, 1)}`.toUpperCase() || 'U'}</span><span>{`${profile.firstName} ${profile.lastName}`.trim() || profile.username || 'Account'}<small>{profile.username ? `@${profile.username}` : (profile.companyName || 'Personal account')}</small></span><b>⌄</b></button>
         </div>
       </aside>
 
       <main className="dashboard">
         <header className="topbar">
           <button className="mobile-menu" type="button" aria-label="Open navigation">☰</button>
-          <div><p className="eyebrow">{activePage === 'connections' ? 'Settings' : 'Acme, Inc.'}</p><h1>{activePage === 'connections' ? 'Platform connections' : 'Overview'}</h1></div>
+          <div><p className="eyebrow">{activePage === 'connections' ? 'Settings' : (profile.companyName || 'Workspace')}</p><h1>{activePage === 'connections' ? 'Platform connections' : 'Overview'}</h1></div>
           <div className="top-actions">{activePage === 'overview' && <button className="new-button" type="button" onClick={() => document.getElementById('transfers')?.scrollIntoView({ behavior: 'smooth' })}>Move money <span>→</span></button>}</div>
         </header>
 
@@ -139,7 +154,7 @@ function App() {
 
           <article className="panel activity-panel" id="activity"><div className="panel-heading"><div><h2>Recent activity</h2><p>Activity will appear after transfers are enabled</p></div></div><p className="empty-state">No activity yet.</p></article>
         </section>}
-        {showProviderFlow && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowProviderFlow(false); setSelectedProvider('') } }}><section className="provider-modal" role="dialog" aria-modal="true" aria-labelledby="provider-modal-title"><div className="modal-heading"><div><p className="eyebrow">Add provider</p><h2 id="provider-modal-title">{selectedProvider ? 'Connect your provider' : 'Choose a provider'}</h2></div><button className="modal-close" type="button" aria-label="Close" onClick={() => { setShowProviderFlow(false); setSelectedProvider('') }}>×</button></div>{!selectedProvider ? <div className="provider-options">{providerOptions.map((option) => { const details = providerDetails[option.id]; return <button className="provider-option" type="button" key={option.id} onClick={() => setSelectedProvider(option.id)}><ProviderMark mark={details.mark} tone={details.tone} /><span><strong>{option.name}</strong><small>{option.description}</small></span><i>›</i></button> })}</div> : selectedProvider === 'paypal' ? <div className="provider-step"><div className="provider-step-icon"><ProviderMark mark="P" tone="paypal" /></div><h3>Authorize PayPal</h3><p>PayPal authorization will let this account prepare PayPal and Venmo payment actions without storing a PayPal password.</p><button className="transfer-button" type="button" disabled>Continue with PayPal</button><p className="settings-note">OAuth callback setup is required before this can be enabled.</p><button className="modal-back" type="button" onClick={() => setSelectedProvider('')}>Choose another provider</button></div> : <form className="provider-step" onSubmit={async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const user = await supabase?.auth.getUser(); const userId = user?.data.user?.id; if (!userId) return; const response = await fetch(`${apiBaseUrl}/v1/platform-connections`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-user-id': userId }, body: JSON.stringify({ provider: selectedProvider, apiKey: form.get('apiKey') }) }); if (!response.ok) { setApiError('The backend could not save this connection.'); return } setShowProviderFlow(false); setSelectedProvider(''); void refreshAccounts() }}><div className="provider-step-icon"><ProviderMark mark={providerDetails[selectedProvider].mark} tone={providerDetails[selectedProvider].tone} /></div><h3>Connect {providerOptions.find((option) => option.id === selectedProvider)?.name}</h3><p>Use a server-side credential to load account balances and payout data.</p><label>API key<input name="apiKey" type="password" placeholder="Paste API key" autoComplete="off" minLength={8} required /></label><button className="transfer-button" type="submit">Connect securely</button><button className="modal-back" type="button" onClick={() => setSelectedProvider('')}>Choose another provider</button></form>}</section></div>}
+        {showProviderFlow && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowProviderFlow(false); setSelectedProvider('') } }}><section className="provider-modal" role="dialog" aria-modal="true" aria-labelledby="provider-modal-title"><div className="modal-heading"><div><p className="eyebrow">Add provider</p><h2 id="provider-modal-title">{selectedProvider ? 'Connect your provider' : 'Choose a provider'}</h2></div><button className="modal-close" type="button" aria-label="Close" onClick={() => { setShowProviderFlow(false); setSelectedProvider('') }}>×</button></div>{!selectedProvider ? <div className="provider-options">{providerOptions.map((option) => { const details = providerDetails[option.id]; return <button className="provider-option" type="button" key={option.id} onClick={() => setSelectedProvider(option.id)}><ProviderMark mark={details.mark} tone={details.tone} /><span><strong>{option.name}</strong><small>{option.description}</small></span><i>›</i></button> })}</div> : selectedProvider === 'paypal' ? <div className="provider-step"><div className="provider-step-icon"><ProviderMark mark="P" tone="paypal" /></div><h3>Authorize PayPal</h3><p>PayPal authorization will let this account prepare PayPal and Venmo payment actions without storing a PayPal password.</p><button className="transfer-button" type="button" disabled>Continue with PayPal</button><p className="settings-note">OAuth callback setup is required before this can be enabled.</p><button className="modal-back" type="button" onClick={() => setSelectedProvider('')}>Choose another provider</button></div> : <form className="provider-step" onSubmit={async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); if (isDemoMode) { const demoConnection = { id: `demo_${selectedProvider}`, provider: selectedProvider, label: providerOptions.find((option) => option.id === selectedProvider)?.name || selectedProvider, keyLast4: 'demo', connectedAt: new Date().toISOString() }; setConnections((current) => [...current.filter((connection) => connection.provider !== selectedProvider), demoConnection]); setShowProviderFlow(false); setSelectedProvider(''); return } const response = await apiFetch('/platform-connections', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: selectedProvider, apiKey: form.get('apiKey') }) }); if (!response.ok) { setApiError('The backend could not save this connection.'); return } setShowProviderFlow(false); setSelectedProvider(''); void refreshAccounts() }}><div className="provider-step-icon"><ProviderMark mark={providerDetails[selectedProvider].mark} tone={providerDetails[selectedProvider].tone} /></div><h3>Connect {providerOptions.find((option) => option.id === selectedProvider)?.name}</h3><p>Use a server-side credential to load account balances and payout data.</p><label>API key<input name="apiKey" type="password" placeholder="Paste API key" autoComplete="off" minLength={8} required /></label><button className="transfer-button" type="submit">Connect securely</button><button className="modal-back" type="button" onClick={() => setSelectedProvider('')}>Choose another provider</button></form>}</section></div>}
         {showSendMoneyModal && <SendMoneyModal step={sendMoneyStep} setStep={setSendMoneyStep} sourceAccounts={sourceAccounts} sourceAccountId={sourceAccountId} setSourceAccountId={setSourceAccountId} recipients={recipients} selectedRecipient={selectedRecipient} setSelectedRecipient={setSelectedRecipient} amount={sendMoneyAmount} setAmount={setSendMoneyAmount} selectedSource={selectedSourceAccount} selectedTransferRecipient={selectedTransferRecipient} onClose={closeSendMoneyModal} />}
       </main>
     </div>

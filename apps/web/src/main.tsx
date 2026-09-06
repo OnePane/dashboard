@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { AuthGate } from './AuthGate'
+import { isDemoMode } from './mode'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthGate><App /></AuthGate>
+    {isDemoMode ? <App /> : <AuthGate><App /></AuthGate>}
   </StrictMode>,
 )
