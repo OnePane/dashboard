@@ -17,7 +17,20 @@ const balanceFixtures = {
 
 export class BalanceProvider {
   constructor(name) { this.name = name; }
-  async getAccounts() { return balanceFixtures[this.name] || []; }
+  async getAccounts(apiKey) {
+    if (this.name !== "stripe") return balanceFixtures[this.name] || [];
+    const response = await fetch("https://api.stripe.com/v2/money_management/financial_accounts?limit=100", { headers: { Authorization: `Bearer ${apiKey}`, "Stripe-Version": "2026-02-25.preview" } });
+    if (!response.ok) throw new Error(`Stripe Financial Accounts v2 request failed with ${response.status}`);
+    const payload = await response.json();
+    return (payload.data || []).map((financialAccount) => ({
+      nickname: financialAccount.display_name || financialAccount.description || financialAccount.id,
+      identifier: financialAccount.id,
+      currencies: Object.entries(financialAccount.balance?.available || {}).map(([currency, value]) => ({
+        code: String(value?.currency || currency).toUpperCase(),
+        amount: Number(value?.value || 0),
+      })),
+    }));
+  }
   async getRecipients(apiKey) {
     if (this.name !== "stripe") return [];
     const response = await fetch("https://api.stripe.com/v1/customers?limit=100", { headers: { Authorization: `Bearer ${apiKey}` } });
