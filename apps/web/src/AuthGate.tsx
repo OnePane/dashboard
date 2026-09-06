@@ -17,6 +17,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const client = supabase
   const [session, setSession] = useState<Awaited<ReturnType<NonNullable<typeof supabase>['auth']['getSession']>>['data']['session']>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [initializing, setInitializing] = useState(true)
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -27,13 +28,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    if (!client) return
-    void client.auth.getSession().then(async ({ data }) => { setSession(data.session); await loadProfile(data.session) })
+    if (!client) { setInitializing(false); return }
+    void client.auth.getSession().then(async ({ data }) => { setSession(data.session); await loadProfile(data.session) }).finally(() => setInitializing(false))
     const { data: listener } = client.auth.onAuthStateChange((_event, next) => { setSession(next); void loadProfile(next) })
     return () => listener.subscription.unsubscribe()
   }, [])
 
   if (!client) return <div className="auth-shell"><h1>Configuration required</h1><p>Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.</p></div>
+  if (initializing) return <AuthLoading />
   if (session && (!profile || profile.username?.startsWith('user_') || !profile.first_name || !profile.last_name)) return <ProfileSetup session={session} profile={profile} onComplete={(nextProfile) => setProfile(nextProfile)} />
   if (session) return <>{children}</>
 
@@ -48,6 +50,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   return <main className="auth-shell"><div className="auth-card"><span className="auth-brand">o onepane</span><h1>{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h1><p>{mode === 'signup' ? 'Start with your email and password.' : 'Sign in to view your connected accounts.'}</p><form onSubmit={submit}><input name="email" type="email" placeholder="Email" autoComplete="email" required /><input name="password" type="password" placeholder="Password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={8} required /><button type="submit">{mode === 'signup' ? 'Create account' : 'Sign in'} →</button></form>{error && <p className="auth-error">{error}</p>}{message && <p className="auth-message">{message}</p>}<button className="auth-toggle" type="button" onClick={() => setMode(mode === 'signup' ? 'signin' : 'signup')}>{mode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Sign up'}</button></div></main>
+}
+
+function AuthLoading() {
+  return <main className="auth-shell loading-shell" aria-live="polite" aria-label="Loading Onepane"><div className="loading-card"><span className="auth-brand"><span className="loading-mark">o</span> onepane</span><div className="loading-orbit" aria-hidden="true"><span /><span /><span /></div><p>Preparing your workspace</p></div></main>
 }
 
 function ProfileSetup({ session, profile, onComplete }: { session: NonNullable<Awaited<ReturnType<NonNullable<typeof supabase>['auth']['getSession']>>['data']['session']>; profile: Profile | null; onComplete: (profile: Profile) => void }) {
