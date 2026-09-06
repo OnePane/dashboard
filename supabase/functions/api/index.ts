@@ -8,7 +8,7 @@ const supabase = createClient(
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
-  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "content-type": "application/json" } });
 const stripeHeaders = (key: string, version = "2026-02-25.preview") => ({ Authorization: `Bearer ${key}`, "Stripe-Version": version });
@@ -105,6 +105,14 @@ Deno.serve(async (request) => {
       const { data, error } = await supabase.from("platform_connections").insert({ account_id: account.id, platform: input.provider, display_name: input.displayName || input.provider, credentials_ref: input.apiKey, access_mode: "read_only", status: "active", updated_at: new Date().toISOString() }).select("id, platform, display_name, status, created_at").single();
       if (error) return json({ error: error.message }, 500);
       return json({ data: { id: data.id, provider: data.platform, label: data.display_name, keyLast4: input.apiKey.slice(-4), connectedAt: data.created_at, status: data.status } }, 201);
+    }
+    if (request.method === "DELETE" && url.pathname.includes("/platform-connections/")) {
+      const connectionId = url.pathname.split("/").pop();
+      const connection = (await connectionsForUser(user.id)).find((item) => item.id === connectionId);
+      if (!connection) return json({ error: "Connection not found" }, 404);
+      const { error } = await supabase.from("platform_connections").delete().eq("id", connectionId);
+      if (error) return json({ error: error.message }, 500);
+      return json({ data: { id: connectionId, deleted: true } });
     }
     if (request.method === "GET" && url.pathname.endsWith("/recipients")) {
       return json({ data: await stripeRecipientsForConnections(await connectionsForUser(user.id)) });
