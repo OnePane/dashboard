@@ -137,11 +137,12 @@ function App() {
           <a className={`nav-link ${activePage === 'accounts' ? 'active' : ''}`} href="/accounts" onClick={(event) => { event.preventDefault(); navigate('accounts') }}><i>▣</i> Accounts</a>
           <a className={`nav-link ${activePage === 'transfers' ? 'active' : ''}`} href="/transfers" onClick={(event) => { event.preventDefault(); navigate('transfers') }}><i>⇄</i> Transfers</a>
           <a className={`nav-link ${activePage === 'recipients' ? 'active' : ''}`} href="/recipients" onClick={(event) => { event.preventDefault(); navigate('recipients') }}><i>◎</i> Recipients</a>
+          <a className={`nav-link ${activePage === 'connections' ? 'active' : ''}`} href="/connections" onClick={(event) => { event.preventDefault(); navigate('connections') }}><i>⌘</i> Connections</a>
           <a className={`nav-link ${activePage === 'activity' ? 'active' : ''}`} href="/activity" onClick={(event) => { event.preventDefault(); navigate('activity') }}><i>↗</i> Activity</a>
           <a className={`nav-link ${activePage === 'insights' ? 'active' : ''}`} href="/insights" onClick={(event) => { event.preventDefault(); navigate('insights') }}><i>◔</i> Insights</a>
         </nav>
         <div className="sidebar-footer">
-          <a className={`nav-link ${activePage === 'connections' ? 'active' : ''}`} href="/connections" onClick={(event) => { event.preventDefault(); navigate('connections') }}><i>⚙</i> Connections</a>
+          <a className="nav-link" href="/connections" onClick={(event) => { event.preventDefault(); navigate('connections') }}><i>⚙</i> Settings</a>
           <button className="profile" type="button"><span className="avatar">{`${profile.firstName.slice(0, 1)}${profile.lastName.slice(0, 1)}`.toUpperCase() || 'U'}</span><span>{`${profile.firstName} ${profile.lastName}`.trim() || profile.username || 'Account'}<small>{profile.username ? `@${profile.username}` : (profile.companyName || 'Personal account')}</small></span><b>⌄</b></button>
         </div>
       </aside>
